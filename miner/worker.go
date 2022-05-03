@@ -19,6 +19,7 @@ package miner
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sort"
 	"sync"
@@ -1599,8 +1600,6 @@ func (w *worker) computeBundleGas(env *environment, bundle types.MevBundle, stat
 			return simulatedBundle{}, errors.New("failed tx")
 		}
 
-		totalGasUsed += receipt.GasUsed
-
 		from, err := types.Sender(env.signer, tx)
 		if err != nil {
 			return simulatedBundle{}, err
@@ -1619,27 +1618,27 @@ func (w *worker) computeBundleGas(env *environment, bundle types.MevBundle, stat
 			}
 		}
 
-		gasUsed := new(big.Int).SetUint64(receipt.GasUsed)
-		gasPrice, err := tx.EffectiveGasTip(env.header.BaseFee)
-		if err != nil {
-			return simulatedBundle{}, err
-		}
-		gasFeesTx := gasUsed.Mul(gasUsed, gasPrice)
-		coinbaseBalanceAfter := state.GetBalance(env.coinbase)
-		coinbaseDelta := big.NewInt(0).Sub(coinbaseBalanceAfter, coinbaseBalanceBefore)
-		coinbaseDelta.Sub(coinbaseDelta, gasFeesTx)
-		ethSentToCoinbase.Add(ethSentToCoinbase, coinbaseDelta)
 
 		if !txInPendingPool {
-			// If tx is not in pending pool, count the gas fees
+			gasUsed := new(big.Int).SetUint64(receipt.GasUsed)
+			gasPrice, err := tx.EffectiveGasTip(env.header.BaseFee)
+			if err != nil {
+				return simulatedBundle{}, err
+			}
+			gasFeesTx := gasUsed.Mul(gasUsed, gasPrice)
+			coinbaseBalanceAfter := state.GetBalance(env.coinbase)
+			coinbaseDelta := big.NewInt(0).Sub(coinbaseBalanceAfter, coinbaseBalanceBefore)
+			coinbaseDelta.Sub(coinbaseDelta, gasFeesTx)
+			ethSentToCoinbase.Add(ethSentToCoinbase, coinbaseDelta)
 			gasFees.Add(gasFees, gasFeesTx)
+			totalGasUsed += receipt.GasUsed
 		}
 	}
 
 	totalEth := new(big.Int).Add(ethSentToCoinbase, gasFees)
 
 	return simulatedBundle{
-		mevGasPrice:       new(big.Int).Div(totalEth, new(big.Int).SetUint64(totalGasUsed)),
+		mevGasPrice:       new(big.Int).Div(totalEth, new(big.Int).SetUint64(math.Max(totalGasUsed, 1))),
 		totalEth:          totalEth,
 		ethSentToCoinbase: ethSentToCoinbase,
 		totalGasUsed:      totalGasUsed,
